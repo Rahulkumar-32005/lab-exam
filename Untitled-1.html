@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Dashboard</title>
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --card-bg: rgba(255, 255, 255, 0.9);
+            --text-color: #333;
+            --error-color: #ff4d4d;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+
+        h1 {
+            color: var(--text-color);
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .search-box {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            outline: none;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus {
+            border-color: #00f2fe;
+        }
+
+        button {
+            padding: 12px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .weather-card {
+            display: none;
+            margin-top: 20px;
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .city-name {
+            font-size: 22px;
+            font-weight: bold;
+            color: var(--text-color);
+            margin-bottom: 10px;
+        }
+
+        .temp {
+            font-size: 48px;
+            font-weight: bold;
+            color: #007bff;
+            margin-bottom: 10px;
+        }
+
+        .conditions {
+            font-size: 18px;
+            color: #555;
+            text-transform: capitalize;
+            margin-bottom: 15px;
+        }
+
+        .details {
+            display: flex;
+            justify-content: space-around;
+            background: rgba(0, 0, 0, 0.05);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #444;
+        }
+
+        .error-message {
+            color: var(--error-message-color, #ff4d4d);
+            margin-top: 15px;
+            font-weight: 500;
+            display: none;
+        }
+
+        .loader {
+            display: none;
+            margin: 20px auto;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Weather Dashboard</h1>
+        
+        <div class="search-box">
+            <input type="text" id="cityInput" placeholder="Enter city name..." autocomplete="off">
+            <button id="searchBtn">Search</button>
+        </div>
+
+        <div class="loader" id="loader"></div>
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="weather-card" id="weatherCard">
+            <div class="city-name" id="displayCity">--</div>
+            <div class="temp" id="displayTemp">--°C</div>
+            <div class="conditions" id="displayConditions">--</div>
+            <div class="details">
+                <div>Humidity: <span id="displayHumidity">--</span>%</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const cityInput = document.getElementById('cityInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const weatherCard = document.getElementById('weatherCard');
+        const errorMessage = document.getElementById('errorMessage');
+        const loader = document.getElementById('loader');
+
+        const displayCity = document.getElementById('displayCity');
+        const displayTemp = document.getElementById('displayTemp');
+        const displayConditions = document.getElementById('displayConditions');
+        const displayHumidity = document.getElementById('displayHumidity');
+
+        // Helper mapping for Open-Meteo weather codes
+        function getWeatherCondition(code) {
+            const weatherCodes = {
+                0: "Clear sky",
+                1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+                45: "Foggy", 48: "Depositing rime fog",
+                51: "Light drizzle", 53: "Moderate drizzle", 55: "Dense drizzle",
+                61: "Slight rain", 62: "Moderate rain", 63: "Heavy rain",
+                71: "Slight snow fall", 73: "Moderate snow fall", 75: "Heavy snow fall",
+                95: "Thunderstorm"
+            };
+            return weatherCodes[code] || "Clear / Fair";
+        }
+
+        async function fetchWeather() {
+            const cityName = cityInput.value.trim();
+            
+            // Reset views
+            errorMessage.style.display = 'none';
+            weatherCard.style.display = 'none';
+
+            if (!cityName) {
+                showError("Please enter a valid city name.");
+                return;
+            }
+
+            loader.style.display = 'block';
+
+            try {
+                // Step 1: Get latitude and longitude for the city using Open-Meteo Geocoding API
+                const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=en&format=json`;
+                const geoResponse = await fetch(geoUrl);
+                
+                if (!geoResponse.ok) {
+                    throw new Error("Failed to connect to location service.");
+                }
+
+                const geoData = await geoResponse.json();
+
+                if (!geoData.results || geoData.results.length === 0) {
+                    throw new Error("City not found. Please check the spelling.");
+                }
+
+                const { latitude, longitude, name, country } = geoData.results[0];
+
+                // Step 2: Fetch weather data using coordinates
+                const weatherUrl = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code`;
+                const weatherResponse = await fetch(weatherUrl);
+
+                if (!weatherResponse.ok) {
+                    throw new Error("Failed to retrieve weather data.");
+                }
+
+                const weatherData = await weatherResponse.json();
+                const current = weatherData.current;
+
+                // Step 3: Display the results
+                displayCity.textContent = `${name}, ${country || ''}`;
+                displayTemp.textContent = `${current.temperature_2m}°C`;
+                displayConditions.textContent = getWeatherCondition(current.weather_code);
+                displayHumidity.textContent = current.relative_humidity_2m;
+
+                weatherCard.style.display = 'block';
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        // Event Listeners
+        searchBtn.addEventListener('click', fetchWeather);
+        cityInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                fetchWeather();
+            }
+        });
+    </script>
+</body>
+</html>
